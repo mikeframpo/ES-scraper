@@ -2,6 +2,7 @@
 import os, imghdr, urllib, urllib2, sys, Image, argparse, zlib, unicodedata, re
 from xml.etree import ElementTree as ET
 from xml.etree.ElementTree import Element, SubElement
+import abc
 
 parser = argparse.ArgumentParser(description='ES-scraper, a scraper for EmulationStation')
 parser.add_argument("-w", metavar="value", help="defines a maximum width (in pixels) for boxarts (anything above that will be resized to that value)", type=int)
@@ -12,6 +13,7 @@ parser.add_argument("-crc", help="CRC scraping", action='store_true')
 parser.add_argument("-p", help="partial scraping (per console)", action='store_true')
 parser.add_argument("-m", help="manual mode (choose from multiple results)", action='store_true')
 parser.add_argument('-newpath', help="gamelist & boxart are written in $HOME/.emulationstation/%%NAME%%/", action='store_true')
+parser.add_argument('-hisdat', help='For arcade (MAME) games, game info will be fetched from the mame history.dat file in the roms directory', action='store_true')
 parser.add_argument('-fix', help="temporary thegamesdb missing platform fix", action='store_true')
 args = parser.parse_args()
 
@@ -94,6 +96,75 @@ def getFiles(base):
             filepath=os.path.abspath(os.path.join(base, files))
             dict.add(filepath)
     return dict
+
+class InfoFetcher(object):
+    __metaclass__ = abc.ABCMeta
+
+    @abc.abstractmethod
+    def gameFound(self):
+        pass
+
+    @abc.abstractmethod
+    def getTitle(self):
+        pass
+
+    @abc.abstractmethod
+    def getDescription(self):
+        pass
+
+    @abc.abstractmethod
+    def getImage(self):
+        pass
+
+    @abc.abstractmethod
+    def getRelDate(self):
+        pass
+
+    @abc.abstractmethod
+    def getPublisher(self):
+        pass
+
+    @abc.abstractmethod
+    def getDeveloper(self):
+        pass
+
+    @abc.abstractmethod
+    def getGenres(self):
+        pass
+
+#class HistoryDatFetcher(InfoFetcher):
+#
+#    def __init__(self, file):
+#        pass
+
+class GamesDBInfoFetcher(InfoFetcher):
+
+    def __init__(self, file, platformId):
+        self.data = getGameInfo(file, platformId)
+
+    def gameFound(self):
+        return self.data is not None
+
+    def getTitle(self):
+        return getTitle(self.data)
+
+    def getDescription(self):
+        return getDescription(self.data)
+
+    def getImage(self):
+        return getImage(self.data)
+
+    def getRelDate(self):
+        return getPublisher(self.data)
+
+    def getPublisher(self):
+        return getPublisher(self.data)
+
+    def getDeveloper(self):
+        return getDeveloper(self.data)
+
+    def getGenres(self):
+        return getGenres(self.data)
 
 def getGameInfo(file,platformID):
     title=re.sub(r'\[.*?\]|\(.*?\)', '', os.path.splitext(os.path.basename(file))[0]).strip()
@@ -297,20 +368,22 @@ def scanFiles(SystemInfo):
 
                     print "Trying to identify %s.." % files
 
-                    data=getGameInfo(filepath, platformID)
- 
-                    if data is None:
-                        continue
+                    if args.hisdat:
+                        fetcher = HistoryDatFetcher(filepath)
                     else:
-                        result=data
+                        fetcher = GamesDBInfoFetcher(filepath, platformID)
+ 
+                    if not fetcher.gameFound():
+                        print 'No info found for {0}'.format(filepath)
+                        continue
 
-                    str_title=getTitle(result)
-                    str_des=getDescription(result)
-                    str_img=getImage(result)
-                    str_rd=getRelDate(result)
-                    str_pub=getPublisher(result)
-                    str_dev=getDeveloper(result)
-                    lst_genres=getGenres(result)
+                    str_title=fetcher.getTitle()
+                    str_des=fetcher.getDescription()
+                    str_img=fetcher.getImage()
+                    str_rd=fetcher.getRelDate()
+                    str_pub=fetcher.getPublisher()
+                    str_dev=fetcher.getDeveloper()
+                    lst_genres=fetcher.getGenres()
 
                     if str_title is not None:
                         game = SubElement(gamelist, 'game')
