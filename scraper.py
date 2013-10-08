@@ -2,7 +2,9 @@
 import os, imghdr, urllib, urllib2, sys, Image, argparse, zlib, unicodedata, re
 from xml.etree import ElementTree as ET
 from xml.etree.ElementTree import Element, SubElement
+
 import abc
+import historydat_parser as hp
 
 parser = argparse.ArgumentParser(description='ES-scraper, a scraper for EmulationStation')
 parser.add_argument("-w", metavar="value", help="defines a maximum width (in pixels) for boxarts (anything above that will be resized to that value)", type=int)
@@ -132,10 +134,40 @@ class InfoFetcher(object):
     def getGenres(self):
         pass
 
-#class HistoryDatFetcher(InfoFetcher):
-#
-#    def __init__(self, file):
-#        pass
+class HistoryDatFetcher(InfoFetcher):
+
+    hp_parser = None
+
+    def __init__(self, filepath, romdir):
+        if HistoryDatFetcher.hp_parser is None:
+            histdat_file = os.path.join(romdir, 'history.dat')
+            HistoryDatFetcher.hp_parser = hp.HistDatParser(histdat_file)
+        game_name = os.path.splitext(os.path.basename(filepath))[0]
+        self.game = HistoryDatFetcher.hp_parser.get_game('info', game_name)
+    
+    def gameFound(self):
+        return self.game is not None
+
+    def getTitle(self):
+        return self.game.name
+
+    def getDescription(self):
+        return None
+
+    def getImage(self):
+        return None
+
+    def getRelDate(self):
+        return self.game.year
+
+    def getPublisher(self):
+        return self.game.publisher
+
+    def getDeveloper(self):
+        return None
+
+    def getGenres(self):
+        return None
 
 class GamesDBInfoFetcher(InfoFetcher):
 
@@ -369,7 +401,7 @@ def scanFiles(SystemInfo):
                     print "Trying to identify %s.." % files
 
                     if args.hisdat:
-                        fetcher = HistoryDatFetcher(filepath)
+                        fetcher = HistoryDatFetcher(filepath, folderRoms)
                     else:
                         fetcher = GamesDBInfoFetcher(filepath, platformID)
  
