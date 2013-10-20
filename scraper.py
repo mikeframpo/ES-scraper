@@ -1,10 +1,12 @@
 #!/usr/bin/env python
-import os, imghdr, urllib, urllib2, sys, Image, argparse, zlib, unicodedata, re
+import os, imghdr, urllib, urllib2, sys, argparse, zlib, unicodedata, re
 from xml.etree import ElementTree as ET
 from xml.etree.ElementTree import Element, SubElement
+from PIL import Image
 
 import abc
 import historydat_parser as hp
+from urlparse import urlparse
 
 parser = argparse.ArgumentParser(description='ES-scraper, a scraper for EmulationStation')
 parser.add_argument("-w", metavar="value", help="defines a maximum width (in pixels) for boxarts (anything above that will be resized to that value)", type=int)
@@ -115,7 +117,11 @@ class InfoFetcher(object):
         pass
 
     @abc.abstractmethod
-    def getImage(self):
+    def getMarquee(self):
+        pass
+
+    @abc.abstractmethod
+    def getSnapshot(self):
         pass
 
     @abc.abstractmethod
@@ -142,8 +148,8 @@ class HistoryDatFetcher(InfoFetcher):
         if HistoryDatFetcher.hp_parser is None:
             histdat_file = os.path.join(romdir, 'history.dat')
             HistoryDatFetcher.hp_parser = hp.HistDatParser(histdat_file)
-        game_name = os.path.splitext(os.path.basename(filepath))[0]
-        self.game = HistoryDatFetcher.hp_parser.get_game('info', game_name)
+        self.romname = os.path.splitext(os.path.basename(filepath))[0]
+        self.game = HistoryDatFetcher.hp_parser.get_game('info', self.romname)
     
     def gameFound(self):
         return self.game is not None
@@ -154,8 +160,11 @@ class HistoryDatFetcher(InfoFetcher):
     def getDescription(self):
         return None
 
-    def getImage(self):
-        return None
+    def getMarquee(self):
+        return 'http://mamedb.com/marquees/' + self.romname + '.png'
+
+    def getSnapshot(self):
+        return 'http://mamedb.com/snap/' + self.romname + '.png'
 
     def getRelDate(self):
         return self.game.year
@@ -183,8 +192,11 @@ class GamesDBInfoFetcher(InfoFetcher):
     def getDescription(self):
         return getDescription(self.data)
 
-    def getImage(self):
-        return getImage(self.data)
+    def getMarquee(self):
+        return None
+
+    def getSnapshot(self):
+        return None
 
     def getRelDate(self):
         return getPublisher(self.data)
@@ -325,10 +337,7 @@ def resizeImage(img,output):
         img.resize((maxWidth,height), Image.ANTIALIAS).save(output)
 
 def downloadBoxart(path,output):
-    if args.crc:
-        os.system("wget -q %s --output-document=\"%s\"" % (path,output))
-    else:
-        os.system("wget -q http://thegamesdb.net/banners/%s --output-document=\"%s\"" % (path,output))
+    return os.system("wget -q %s --output-document=\"%s\"" % (path,output))
 
 def skipGame(list, filepath):
     for game in list.iter("game"):
@@ -349,6 +358,35 @@ def chooseResult(nodes):
         return int(raw_input("Select a result (or press Enter to skip): "))
     else:
         return 0
+
+def fetchImage(url, image, dest_folder, img_id):
+
+    print "Downloading boxart.."
+
+    if not os.path.isdir(dest_folder):
+        os.mkdir(dest_folder)
+
+    url_parsed = urlparse(url)
+    dest_filename = os.path.basename(url_parsed.path)
+    dest_path = os.path.join(dest_folder, dest_filename)
+
+    rc = downloadBoxart(url, dest_path)
+    if rc != 0:
+        raise Exception('Image fetch failed from url: ' + url)
+
+    if not os.path.exists(dest_path):
+        raise Exception(
+            'Image fetched successfully but failed to write to dest directory.')
+
+    dest_path = fixExtension(dest_path)
+    image.text = dest_path
+    image.attrib['id'] = img_id
+
+    if args.w:
+        try:
+            resizeImage(Image.open(dest_path), dest_path)
+        except:
+            print "Image resize error"
 
 def scanFiles(SystemInfo):
     name=SystemInfo[0]
@@ -410,8 +448,14 @@ def scanFiles(SystemInfo):
                         continue
 
                     str_title=fetcher.getTitle()
-                    str_des=fetcher.getDescription()
-                    str_img=fetcher.getImage()
+
+                    #TODO:re-enable me once the description is nicely shortened
+                    #str_des=fetcher.getDescription()
+                    str_des=''
+
+                    str_marquee_url = fetcher.getMarquee()
+                    str_snap_url = fetcher.getSnapshot()
+
                     str_rd=fetcher.getRelDate()
                     str_pub=fetcher.getPublisher()
                     str_dev=fetcher.getDeveloper()
@@ -422,7 +466,12 @@ def scanFiles(SystemInfo):
                         path = SubElement(game, 'path')
                         name = SubElement(game, 'name')
                         desc = SubElement(game, 'desc')
-                        image = SubElement(game, 'image')
+
+                        if str_marquee_url is not None:
+                            img_marquee = SubElement(game, 'image')
+                        if str_snap_url is not None:
+                            img_snap = SubElement(game, 'image')
+
                         releasedate = SubElement(game, 'releasedate')
                         publisher=SubElement(game, 'publisher')
                         developer=SubElement(game, 'developer')
@@ -434,24 +483,17 @@ def scanFiles(SystemInfo):
 
                     if str_des is not None:
                         desc.text=str_des
+    
+                    if args.newpath is True:
+                        imgroot="./"
+                    else:
+                        imgroot=os.path.abspath(root)
 
-                    if str_img is not None and args.noimg is False:
-                        if args.newpath is True:
-                            imgpath="./" + filename+os.path.splitext(str_img)[1]
-                        else:
-                            imgpath=os.path.abspath(os.path.join(root, filename+os.path.splitext(str_img)[1]))
-
-                        print "Downloading boxart.."
-
-                        downloadBoxart(str_img,imgpath)
-                        imgpath=fixExtension(imgpath)
-                        image.text=imgpath
-
-                        if args.w:
-                            try:
-                                resizeImage(Image.open(imgpath),imgpath)
-                            except:
-                                print "Image resize error"
+                    if args.noimg is False:
+                        fetchImage(str_marquee_url, img_marquee,
+                                    os.path.join(imgroot, 'marquee'), '0')
+                        fetchImage(str_snap_url, img_snap,
+                                    os.path.join(imgroot, 'snap'), '1')
 
                     if str_rd is not None:
                         releasedate.text=str_rd
