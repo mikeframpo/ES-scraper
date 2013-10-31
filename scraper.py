@@ -7,6 +7,7 @@ from PIL import Image
 import abc
 import historydat_parser as hp
 from urlparse import urlparse
+import shutil
 
 parser = argparse.ArgumentParser(description='ES-scraper, a scraper for EmulationStation')
 parser.add_argument("-w", metavar="value", help="defines a maximum width (in pixels) for boxarts (anything above that will be resized to that value)", type=int)
@@ -117,11 +118,11 @@ class InfoFetcher(object):
         pass
 
     @abc.abstractmethod
-    def getMarqueeURLs(self):
+    def getMarquee(self):
         pass
 
     @abc.abstractmethod
-    def getSnapshotURLs(self):
+    def getSnapshot(self):
         pass
 
     @abc.abstractmethod
@@ -150,6 +151,9 @@ class HistoryDatFetcher(InfoFetcher):
             HistoryDatFetcher.hp_parser = hp.HistDatParser(histdat_file)
         self.romname = os.path.splitext(os.path.basename(filepath))[0]
         self.game = HistoryDatFetcher.hp_parser.get_game('info', self.romname)
+
+        self.snap_path = '../snap'
+        self.marquee_path = '../marquees'
     
     def gameFound(self):
         return self.game is not None
@@ -160,17 +164,21 @@ class HistoryDatFetcher(InfoFetcher):
     def getDescription(self):
         return None
 
-    def getMarqueeURLs(self):
-        urls = []
+    def _getRomImage(self, directory):
         for romname in self.game.romnames:
-            urls.append('http://mamedb.com/marquees/' + romname + '.png')
-        return urls
+            filename = os.path.join(directory, romname + '.png')
+            try:
+                with open(filename):
+                    return filename
+            except IOError:
+                pass
+        return None
 
-    def getSnapshotURLs(self):
-        urls = []
-        for romname in self.game.romnames:
-            urls.append('http://mamedb.com/snap/' + romname + '.png')
-        return urls
+    def getMarquee(self):
+        return self._getRomImage(self.marquee_path)
+
+    def getSnapshot(self):
+        return self._getRomImage(self.snap_path)
 
     def getRelDate(self):
         return self.game.year
@@ -198,10 +206,10 @@ class GamesDBInfoFetcher(InfoFetcher):
     def getDescription(self):
         return getDescription(self.data)
 
-    def getMarqueeURLs(self):
+    def getMarquee(self):
         return None
 
-    def getSnapshotURLs(self):
+    def getSnapshot(self):
         return None
 
     def getRelDate(self):
@@ -365,30 +373,32 @@ def chooseResult(nodes):
     else:
         return 0
 
-def fetchImage(gamename, urls, game_elem, dest_folder, img_id):
+def copyImage(gamename, src_path, game_elem, dest_folder, img_id):
 
     print "Downloading boxart.."
 
     if not os.path.isdir(dest_folder):
         os.mkdir(dest_folder)
 
-    dest_path = os.path.join(dest_folder, gamename)
+    dest_path = os.path.join(dest_folder, os.path.basename(src_path))
 
-    rc = -1
-    for url in urls:
-        rc = downloadBoxart(url, dest_path)
-        if rc == 0:
-            break
+    #rc = -1
+    #for url in urls:
+    #    rc = downloadBoxart(url, dest_path)
+    #    if rc == 0:
+    #        break
 
-    if rc != 0:
-        print('Image fetch failed from url: ' + url)
-        return
+    #if rc != 0:
+    #    print('Image fetch failed from url: ' + url)
+    #    return
 
-    if not os.path.exists(dest_path):
-        raise Exception(
-            'Image fetched successfully but failed to write to dest directory.')
+    #if not os.path.exists(dest_path):
+    #    raise Exception(
+    #        'Image fetched successfully but failed to write to dest directory.')
 
-    dest_path = fixExtension(dest_path)
+    #dest_path = fixExtension(dest_path)
+
+    shutil.copy(src_path, dest_path)
 
     image = Element('image')
     image.text = dest_path
@@ -467,8 +477,8 @@ def scanFiles(SystemInfo):
                     #str_des=fetcher.getDescription()
                     str_des=''
 
-                    str_marquee_urls = fetcher.getMarqueeURLs()
-                    str_snap_urls = fetcher.getSnapshotURLs()
+                    marquee_path = fetcher.getMarquee()
+                    snap_path = fetcher.getSnapshot()
 
                     str_rd=fetcher.getRelDate()
                     str_pub=fetcher.getPublisher()
@@ -499,9 +509,11 @@ def scanFiles(SystemInfo):
                         imgroot=os.path.abspath(root)
 
                     if args.noimg is False:
-                        fetchImage(filename, str_marquee_urls, game,
+                        if marquee_path is not None:
+                            copyImage(filename, marquee_path, game,
                                     os.path.join(imgroot, 'marquee'), '0')
-                        fetchImage(filename, str_snap_urls, game,
+                        if snap_path is not None:
+                            copyImage(filename, snap_path, game,
                                     os.path.join(imgroot, 'snap'), '1')
 
                     if str_rd is not None:

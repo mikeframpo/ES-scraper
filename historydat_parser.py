@@ -2,6 +2,7 @@
 from __future__ import print_function
 import sys
 import re
+import string
 
 #TODO: 
 # * fail if an unexpected state occurs
@@ -22,7 +23,11 @@ class Game:
         self.publisher = None
         self.year = None
 
+    def _filter_line(self, line):
+        return filter(lambda x: x in string.printable, line)
+
     def _add_to_bio(self, line):
+        line = self._filter_line(line)
         self.bio.append(line)
         # name information is on the second line of the bio
         if self.name is None and len(self.bio) == 2:
